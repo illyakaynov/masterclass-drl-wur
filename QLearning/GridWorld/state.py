@@ -5,8 +5,8 @@ LAYOUTS = {
         "size": (5, 5),
         "player_start": (2, 0),
         "objects": {
-            "walls": [(1, 1), (2, 1), (1, 2), (2, 2), (3, 2)],
-            "traps": [(4, 4), (2, 3)],
+            "walls": [(1, 1), (2, 1), (1, 2), (2, 2), (3, 2), (3, 1)],
+            "traps": [(4, 4), (2, 3), (0, 4)],
             "goal": [(2, 4)],
         },
     },
@@ -32,6 +32,8 @@ LAYOUTS = {
 
 
 class State:
+    CELLS = {"empty": 0, "wall": 1, "trap": 2, "goal": 3}
+
     def __init__(self, layout_id=0):
         self.layout_id = layout_id
         self.layout = LAYOUTS[self.layout_id]
@@ -63,7 +65,7 @@ class State:
         if new_y < 0:
             new_y = 0
 
-        if self.maze[new_x, new_y] == 1:
+        if self.maze[new_x, new_y] == self.CELLS['wall']:
             new_x, new_y = old_x, old_y
 
         self.player[old_x][old_y] = 0
@@ -75,12 +77,34 @@ class State:
     def get_state(self, x, y):
         return self.maze[x, y]
 
+    def set_state(self, x, y):
+        old_x, old_y = self.get_player_pos()
+        if self.maze[x, y] == self.CELLS['wall']:
+            print('Cannot set the player on the wall')
+        else:
+            self.player[old_x][old_y] = 0
+            self.player[x][y] = 1
+
     def get_player_pos(self):
         x, y = np.where(self.player)
         return int(x), int(y)
 
+    def get_allowed_player_positions(self):
+        x, y = np.where(self.maze == 0)
+        return x, y
+
+    def get_allowed_positions(self):
+        x, y = np.where(self.maze != 1)
+        return x, y
+
     def render(self):
-        print(self.maze.astype(np.int8))
+        maze_copy = self.maze.copy()
+        maze_copy[self.get_player_pos()] = 9
+        print(maze_copy.astype(np.int8))
+
+    def get_terminal_positions(self):
+        x, y = np.where(np.logical_or(self.maze == self.CELLS['goal'], self.maze == self.CELLS['trap']))
+        return x, y
 
     @property
     def shape(self):

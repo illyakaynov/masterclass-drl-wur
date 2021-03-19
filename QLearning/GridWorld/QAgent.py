@@ -22,11 +22,14 @@ class QAgent:
 
         self.q_table = np.zeros((self.n_states, self.n_actions), np.float)
 
+    def get_type(self):
+        return 'q_value'
+
     def reset(self):
         self.sum_rewards = 0
         self.return_ = 0
 
-    def reset_q_table(self):
+    def reset_values(self):
         self.q_table = np.zeros((self.n_states, self.n_actions), np.float)
 
     def compute_action(self, obs):
@@ -35,6 +38,9 @@ class QAgent:
         else:
             action = np.argmax(self.q_table[obs, :])
         return action
+
+    def compute_greedy_action(self, obs):
+        return np.argmax(self.q_table[obs, :])
 
     def update(self, obs, action, next_obs, reward, done):
         if self.learn:

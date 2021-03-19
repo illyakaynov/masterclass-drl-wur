@@ -1,13 +1,14 @@
 import pygame
 from QLearning.GridWorld.grid_env import (
-    GOAL_REWARD,
-    TIMESTEP_REWARD,
-    TRAP_REWARD,
     GridEnv,
 )
+
+from QLearning.GridWorld.dynamic_programming import DPAgent
 from QLearning.GridWorld.QAgent import DoubleQAgent, QAgent
 
 from os.path import join
+
+from QLearning.GridWorld.monte_carlo import MonteCarloValue, MonteCarloQValue
 
 BLUE = (0, 0, 255)
 BLACK = (0, 0, 0)
@@ -22,7 +23,7 @@ ALPHA_STEP = 0.05
 
 TOGGLE_LEARNING = "toggle_learning"
 RESET_PLAYER = "reset_player"
-RESET_AGENT_Q_VALUES = "reset_agent"
+RESET_VALUES = "reset_agent"
 GAMMA_DOWN = "gamma_down"
 GAMMA_UP = "gamma_up"
 EPSILON_DOWN = "epsilon_down"
@@ -30,28 +31,46 @@ EPSILON_UP = "epsilon_up"
 ALPHA_DOWN = "alpha_down"
 ALPHA_UP = "alpha_up"
 DO_STEP = "do_step"
-TOGGLE_Q_LABELS = 'toggle_q_labels'
+TOGGLE_LABELS = "toggle_q_labels"
+LEARN_ONE_ITERATION = 'learn_one_iteration'
+POLICY_EVALUATION = 'policy_evaluation'
+POLICY_IMPROVEMENT = 'policy_improvement'
 
-NOOP = 0
-LEFT = 1
-UP = 2
-RIGHT = 3
-DOWN = 4
+# NOOP = 0
+LEFT = 0
+UP = 1
+RIGHT = 2
+DOWN = 3
 
 
 class GridWorld:
-    def __init__(self, layout_id=0, screen_size=(800, 800), display_logo=False):
+    def __init__(self,
+                 agent_type='q_learning',
+                 # agent_type='value_iteration',
+                 # agent_type='monte_carlo_value',
+                 # agent_type='monte_carlo_q_value',
+
+                 layout_id=0,
+                 screen_size=(800, 800),
+                 display_logo=False):
         pygame.init()
         self.display_logo = display_logo
         self.screen_size = screen_size
         self.screen = pygame.display.set_mode(self.screen_size)
         pygame.display.flip()
-        pygame.display.set_caption("GridWorld-QLearning")
+        pygame.display.set_caption(f"GridWorld-{agent_type}")
         self.player_size = 10
 
-        self.env = GridEnv(layout_id)
+        self.env = GridEnv(layout_id, terminate_after=None)
         state = self.env.get_state()
-        self.agent = QAgent(self.env.observation_space.n, self.env.action_space.n)
+        if agent_type == 'q_learning':
+            self.agent = QAgent(self.env.observation_space.n, self.env.action_space.n)
+        elif agent_type == 'value_iteration':
+            self.agent = DPAgent(GridEnv(layout_id))
+        elif agent_type == 'monte_carlo_value':
+            self.agent = MonteCarloValue(GridEnv(layout_id))
+        elif agent_type == 'monte_carlo_q_value':
+            self.agent = MonteCarloQValue(self.env.observation_space.n, self.env.action_space.n)
 
         self.margins = (
             self.screen_size[0] // (state.shape[0] + 1),
@@ -61,7 +80,15 @@ class GridWorld:
         self.score = 0
         self.auto_learn = False
 
-        self.display_q_labels = True
+        self.display_labels = True
+        if self.agent.get_type() == "q_value":
+            self.display_q_labels = True
+            self.display_values = False
+        elif self.agent.get_type() == "value":
+            self.display_q_labels = False
+            self.display_values = True
+        else:
+            raise ValueError("Unknown type of the agent")
 
     def reset(self):
         self.score = 0
@@ -72,9 +99,13 @@ class GridWorld:
     def draw_player(self):
         state = self.env.get_state()
         y, x = state.get_player_pos()
-        robot_image = pygame.image.load(join('QLearning', 'GridWorld', 'images', 'robot.png'))
+        robot_image = pygame.image.load(
+            join("QLearning", "GridWorld", "images", "robot.png")
+        )
         img_x, img_y = robot_image.get_size()
-        pos = (int(x) + 1) * self.margins[0] - img_x//2, (int(y) + 1) * self.margins[1] - img_y//2
+        pos = (int(x) + 1) * self.margins[0] - img_x // 2, (int(y) + 1) * self.margins[
+            1
+        ] - img_y // 2
         self.screen.blit(robot_image, pos)
         # pygame.draw.circle(self.screen, BLUE, pos, self.player_size)
         # pygame.display.update()
@@ -115,48 +146,76 @@ class GridWorld:
                 elif state.get_state_transpose(x, y) == 2:
                     rect = pygame.Rect(posx, posy, cell_width, cell_height)
                     pygame.draw.rect(self.screen, RED, rect, 0)
-                    if self.display_q_labels:
+                    if self.display_q_labels or self.display_values:
                         self.draw_text(
                             posx + cell_width // 2,
                             posy + cell_width // 2,
-                            text=str(TRAP_REWARD),
-                            )
+                            text=str(self.env.REWARDS["trap"]),
+                        )
 
                 elif state.get_state_transpose(x, y) == 3:
                     rect = pygame.Rect(posx, posy, cell_width, cell_height)
                     pygame.draw.rect(self.screen, GREEN, rect, 0)
-                    if self.display_q_labels:
+                    if self.display_q_labels or self.display_values:
                         self.draw_text(
                             posx + cell_width // 2,
                             posy + cell_height // 2,
-                            text=str(GOAL_REWARD),
-                            )
+                            text=str(self.env.REWARDS["goal"]),
+                        )
                 else:
                     rect = pygame.Rect(posx, posy, cell_width, cell_height)
                     pygame.draw.rect(self.screen, BLACK, rect, 1)
-                    if self.display_q_labels:
-                        self.draw_q_labels(
-                            posx,
-                            posy,
-                            width=self.margins[0],
-                            q_values=self.agent.q_table[10 * y + x, 1:].tolist(),
-                        )
+                    if self.display_labels:
+                        if self.display_q_labels:
+                            self.draw_q_labels(
+                                posx,
+                                posy,
+                                width=self.margins[0],
+                                q_values=self.agent.q_table[10 * y + x].tolist()
+                            )
+                        if self.display_values:
+                            self.draw_value_label(
+                                posx,
+                                posy,
+                                width=self.margins[0],
+                                value=self.agent.value_fn[self.env.coord_to_state(y, x)],
+                            )
+                        if self.display_values or self.display_q_labels:
+                            self.draw_arrow(posx + 2, posy + 2, action=self.agent.compute_greedy_action(self.env.coord_to_state(y, x)))
+
+    def draw_value_label(self, posx, posy, width, value):
+        offset = 5
+
+        half = width // 2
+        small = width // offset
+        self.draw_text(posx + half, posy + small, text="{:.3f}".format(value), color_text=BLACK)
+
+
+
+    def draw_arrow(self, posx, posy, action):
+        action_name = self.env.ACTIONS[action]
+        image = pygame.image.load(
+            join("QLearning", "GridWorld", "images", f"{action_name}.png")
+        )
+        size = image.get_size()
+        size = (int(size[0] / 2.), int(size[1] / 2.))
+        image = pygame.transform.scale(image, size)
+        self.screen.blit(image, (posx, posy))
 
     def draw_agent_params(self):
-        epsilon = self.agent.epsilon
-        gamma = self.agent.gamma
-        alpha = self.agent.alpha
-        episode_reward = self.agent.sum_rewards
-        return_ = self.agent.return_
+        epsilon = getattr(self.agent, 'epsilon', 0)
+        gamma = getattr(self.agent, 'gamma', 0)
+        alpha = getattr(self.agent, 'alpha', 0)
+        episode_reward = getattr(self.agent, 'episode_reward', 0)
+        return_ = getattr(self.agent, 'return_', 0)
+
         self.draw_text(
             50,
             40,
             pos="topleft",
             text="Epsilon {:.2f}, Gamma {:.2f}, Alpha {:.2f}"
-                 ", Episode Reward {:.2f}, Episode Return {:.2f}"
-                .format(
-                epsilon, gamma, alpha,
-                episode_reward, return_
+            ", Episode Reward {:.2f}, Episode Return {:.2f}".format(
+                epsilon, gamma, alpha, episode_reward, return_
             ),
         )
 
@@ -183,13 +242,17 @@ class GridWorld:
         self.screen.blit(text, textRect)
 
     def draw_logo(self):
-        robot_image = pygame.image.load(join('QLearning', 'GridWorld', 'images', 'logo_transparant.png'))
-        size = robot_image.get_size()
+        logo_image = pygame.image.load(
+            join("QLearning", "GridWorld", "images", "logo_transparant.png")
+        )
+        size = logo_image.get_size()
         size = (int(size[0] / 4.1), int(size[1] / 4.1))
-        robot_image = pygame.transform.scale(robot_image, size)
-        pos = (self.screen_size[0] // 2 - robot_image.get_size()[0]//2 - 70,
-               self.screen_size[1] // 2 - robot_image.get_size()[1]//2 - 50)
-        self.screen.blit(robot_image, pos)
+        logo_image = pygame.transform.scale(logo_image, size)
+        pos = (
+            self.screen_size[0] // 2 - logo_image.get_size()[0] // 2 - 70,
+            self.screen_size[1] // 2 - logo_image.get_size()[1] // 2 - 50,
+        )
+        self.screen.blit(logo_image, pos)
 
     def draw_game(self):
         self.screen.fill((255, 255, 255))
@@ -216,11 +279,18 @@ class GridWorld:
                     action = RIGHT
                 if event.key == pygame.K_DOWN:
                     action = DOWN
-                if event.key == pygame.K_n:
-                    action = NOOP
 
                 if event.key == pygame.K_z:
                     return_event = DO_STEP
+
+                if event.key == pygame.K_x:
+                    return_event = LEARN_ONE_ITERATION
+
+                if event.key == pygame.K_c:
+                    return_event = POLICY_EVALUATION
+
+                if event.key == pygame.K_v:
+                    return_event = POLICY_IMPROVEMENT
 
                 if event.key == pygame.K_SPACE:
                     return_event = TOGGLE_LEARNING
@@ -229,7 +299,7 @@ class GridWorld:
                     return_event = RESET_PLAYER
 
                 if event.key == pygame.K_t:
-                    return_event = RESET_AGENT_Q_VALUES
+                    return_event = RESET_VALUES
 
                 if event.key == pygame.K_q:
                     return_event = EPSILON_UP
@@ -246,7 +316,7 @@ class GridWorld:
                 if event.key == pygame.K_d:
                     return_event = ALPHA_DOWN
                 if event.key == pygame.K_l:
-                    return_event = TOGGLE_Q_LABELS
+                    return_event = TOGGLE_LABELS
 
         return return_event, action
 
@@ -262,8 +332,18 @@ class GridWorld:
             if event == TOGGLE_LEARNING:
                 self.auto_learn = not self.auto_learn
 
-            if event == TOGGLE_Q_LABELS:
-                self.display_q_labels = not self.display_q_labels
+            if event == TOGGLE_LABELS:
+                self.display_labels = not self.display_labels
+
+            if event == LEARN_ONE_ITERATION:
+                self.agent.learn_one_iteration()
+
+            if event == POLICY_EVALUATION:
+                print(self.agent.policy_evaluation())
+
+            if event == POLICY_IMPROVEMENT:
+                print(self.agent.policy_improvement())
+
 
             if self.auto_learn:
                 action = self.agent.compute_action(obs)
@@ -279,8 +359,8 @@ class GridWorld:
                 if event:
                     if event == RESET_PLAYER:
                         self.reset()
-                    if event == RESET_AGENT_Q_VALUES:
-                        self.agent.reset_q_table()
+                    if event == RESET_VALUES:
+                        self.agent.reset_values()
 
                     if event == EPSILON_UP:
                         self.agent.epsilon += EPSILON_STEP
@@ -297,9 +377,9 @@ class GridWorld:
                     if event == ALPHA_DOWN:
                         self.agent.alpha -= ALPHA_STEP
 
-                    if action == DO_STEP:
+                    if event == DO_STEP:
                         action = self.agent.compute_action(obs)
-                if action:
+                if action is not None:
                     if action >= 0:
                         next_obs, reward, done, info = self.env.step(action)
                         self.agent.update(
