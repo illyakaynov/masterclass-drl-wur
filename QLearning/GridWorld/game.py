@@ -3,12 +3,12 @@ from QLearning.GridWorld.grid_env import (
     GridEnv,
 )
 
-from QLearning.GridWorld.dynamic_programming import DPAgent
+from QLearning.GridWorld.dynamic_programming import DPAgent, DPRandomAgent
 from QLearning.GridWorld.QAgent import DoubleQAgent, QAgent
 
 from os.path import join
 
-from QLearning.GridWorld.monte_carlo import MonteCarloValue, MonteCarloQValue
+from QLearning.GridWorld.monte_carlo import MonteCarloValue, MonteCarloQValue, MonteCarloValueRandom
 
 BLUE = (0, 0, 255)
 BLACK = (0, 0, 0)
@@ -47,8 +47,10 @@ class GridWorld:
     def __init__(self,
                  agent_type='q_learning',
                  # agent_type='value_iteration',
+                 # agent_type='value_evaluation_random',
                  # agent_type='monte_carlo_value',
                  # agent_type='monte_carlo_q_value',
+                 # agent_type='monte_carlo_value_evaluation_random',
 
                  layout_id=0,
                  screen_size=(800, 800),
@@ -61,16 +63,21 @@ class GridWorld:
         pygame.display.set_caption(f"GridWorld-{agent_type}")
         self.player_size = 10
 
-        self.env = GridEnv(layout_id, terminate_after=None)
+        env_params = {'layout_id': layout_id, 'terminate_after': 20}
+        self.env = GridEnv(**env_params)
         state = self.env.get_state()
         if agent_type == 'q_learning':
             self.agent = QAgent(self.env.observation_space.n, self.env.action_space.n)
         elif agent_type == 'value_iteration':
-            self.agent = DPAgent(GridEnv(layout_id))
+            self.agent = DPAgent(GridEnv(**env_params))
         elif agent_type == 'monte_carlo_value':
-            self.agent = MonteCarloValue(GridEnv(layout_id))
+            self.agent = MonteCarloValue(GridEnv(**env_params))
         elif agent_type == 'monte_carlo_q_value':
             self.agent = MonteCarloQValue(self.env.observation_space.n, self.env.action_space.n)
+        elif agent_type == 'value_evaluation_random':
+            self.agent = DPRandomAgent(GridEnv(**env_params))
+        elif agent_type == 'monte_carlo_value_evaluation_random':
+            self.agent = MonteCarloValueRandom(GridEnv(**env_params))
 
         self.margins = (
             self.screen_size[0] // (state.shape[0] + 1),
@@ -203,20 +210,19 @@ class GridWorld:
         self.screen.blit(image, (posx, posy))
 
     def draw_agent_params(self):
-        epsilon = getattr(self.agent, 'epsilon', 0)
-        gamma = getattr(self.agent, 'gamma', 0)
-        alpha = getattr(self.agent, 'alpha', 0)
-        episode_reward = getattr(self.agent, 'episode_reward', 0)
-        return_ = getattr(self.agent, 'return_', 0)
+
+        text_values = []
+        for attr in ['epsilon', 'gamma', 'alpha', 'episode_reward', 'return_', 'episode_count']:
+            value = getattr(self.agent, attr, 0)
+            if value != 0:
+                t = '{}: {:.2f}'.format(attr, value)
+                text_values.append(t)
 
         self.draw_text(
             50,
             40,
             pos="topleft",
-            text="Epsilon {:.2f}, Gamma {:.2f}, Alpha {:.2f}"
-            ", Episode Reward {:.2f}, Episode Return {:.2f}".format(
-                epsilon, gamma, alpha, episode_reward, return_
-            ),
+            text=' ,'.join(text_values),
         )
 
     def draw_text(

@@ -26,7 +26,7 @@ class MonteCarloValue(Agent):
         self.value_fn = {}
         self.returns = {}
         self.policy = {}
-        self.gamma = 0.99
+        self.gamma = 0.9
         self.env = env
         self.epsilon = epsilon
         self.reset_values()
@@ -143,5 +143,91 @@ class MonteCarloQValue(Agent):
                         action_prob = self.epsilon / self.n_actions
                     action_probs.append(action_prob)
                 self.policy[obs] = action_probs
+
+
+class MonteCarloValueRandom(Agent):
+
+    def __init__(self, env):
+        self.trajectory = []
+        self.value_fn = {}
+        self.returns = {}
+        self.alpha = 0.001
+        self.threshold = 1e-4
+        self.episode_counter = 0
+        self.gamma = 0.9
+        self.env = env
+        self.n_actions = env.action_space.n
+        self.reset_values()
+        self.episode_count = 0
+
+    def get_type(self):
+        return 'value'
+
+    def reset(self):
+        self.policy_evaluation()
+        self.trajectory = []
+        self.episode_count += 1
+
+    def reset_values(self):
+        for state in self.env.get_allowed_states():
+            self.returns[state] = []
+            self.value_fn[state] = 0
+        for state in self.env.get_terminal_states():
+            self.value_fn[state] = 0
+
+    def compute_action(self, obs):
+        action = np.random.choice(self.env.get_allowed_actions())
+        return action
+
+    def compute_greedy_action(self, obs):
+        next_state_values = []
+        for action in range(self.n_actions):
+            self.env.reset()
+            self.env.set_state(obs)
+            next_state, reward, _, _ = self.env.step(action)
+            next_state_values.append(reward + self.gamma * self.value_fn[next_state])
+        return np.argmax(next_state_values)
+
+    def policy_evaluation(self):
+        self.generate_trajectory()
+        return_ = 0
+        visited_obs = set()
+        delta = 0
+        for obs, action, next_obs, reward, done in self.trajectory[::-1]:
+            return_ = self.gamma * return_ + reward
+            if obs not in visited_obs:
+                old_value = self.value_fn[obs]
+                self.returns[obs].append(return_)
+                self.value_fn[obs] = self.value_fn[obs] + self.alpha * (return_ - self.value_fn[obs])
+                delta = max(delta, np.abs(old_value - self.value_fn[obs]))
+                visited_obs.add(obs)
+        return delta
+
+    def policy_improvement(self):
+        ...
+
+    def update(self, obs, action, next_obs, reward, done):
+        self.trajectory.append((obs, action, next_obs, reward, done))
+
+    def generate_trajectory(self):
+        obs = self.env.reset()
+        done = False
+        while not done:
+            action = self.compute_action(obs)
+            next_obs, reward, done, info = self.env.step(action)
+            self.update(obs, action, next_obs, reward, done)
+            obs = next_obs
+
+    def learn_until_convergence(self):
+        delta = 1e10
+        while delta > self.threshold:
+            self.generate_trajectory()
+            delta = self.policy_evaluation()
+            self.trajectory = []
+            print(delta)
+        return delta
+
+    def learn_one_iteration(self):
+        print(self.learn_until_convergence())
 
 

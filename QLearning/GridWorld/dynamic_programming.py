@@ -1,11 +1,29 @@
 import numpy as np
 
 
+# correct solution:
+def softmax(x):
+    """Compute softmax values for each sets of scores in x."""
+    e_x = np.exp(x - np.max(x))
+    return e_x / e_x.sum(axis=0) # only difference
+
+class RandomPolicy:
+    def __init__(self, n_actions, probs=None):
+        self.n_actions = n_actions
+        self.mapping = {}
+        self.probs = probs or [1/self.n_actions for _ in range(self.n_actions)]
+
+    def __setitem__(self, key, value):
+        self.mapping[key] = value
+
+    def __getitem__(self, key):
+        return self.mapping[key]
+
 class DPAgent:
     def __init__(self, env):
         self.policy = {}
         self.value_fn = {}
-        self.gamma = 0.99
+        self.gamma = 0.9
         self.threshold = 1e-4
         self.env = env
         self.reset_values()
@@ -56,10 +74,16 @@ class DPAgent:
             action = self.policy[state]
             self.env.reset()
             self.env.set_state(state)
-            next_state, reward, done, info = self.env.step(action)
-            print(next_state, reward)
-            self.value_fn[state] = reward + self.gamma * self.value_fn[next_state]
+            values_rewards = []
+            for action in self.env.get_allowed_actions():
+                self.env.reset()
+                self.env.set_state(state)
+                next_state, reward, done, info = self.env.step(action)
+                values_rewards.append(reward + self.gamma * self.value_fn[next_state])
+            self.value_fn[state] = sum(values_rewards) / 4
             delta = max(delta, np.abs(old_value - self.value_fn[state]))
+        # for state in self.env.get_allowed_player_states():
+        #     self.policy[state] = np.random.choice(self.all_actions)
         return delta
 
     def policy_improvement(self):
@@ -82,9 +106,79 @@ class DPAgent:
         delta = 1e10
         while delta > self.threshold:
             delta = self.policy_evaluation()
+        print(delta)
         policy_stable = self.policy_improvement()
+        print(policy_stable)
         return delta, policy_stable
 
 
+class DPRandomAgent:
+    def __init__(self, env, probs=None):
+        self.value_fn = {}
+        self.gamma = 0.9
+        self.threshold = 1e-4
+        self.env = env
+        self.n_actions = env.action_space.n
+        self.probs = probs or [1/self.n_actions for _ in range(self.n_actions)]
+        self.reset_values()
+
+    def reset(self):
+        ...
+
+    def compute_action(self, state):
+        return np.random.randint(self.n_actions)
+
+    def compute_greedy_action(self, state):
+        next_state_values = []
+        for action in self.all_actions:
+            self.env.reset()
+            self.env.set_state(state)
+            next_state, reward, _, _ = self.env.step(action)
+            next_state_values.append(reward + self.gamma * self.value_fn[next_state])
+        return np.argmax(next_state_values)
+
+    def update(self, *args, **kwargs):
+        ...
+
+    def reset_values(self):
+        self.all_actions = self.env.get_allowed_actions()
+
+        for state in self.env.get_allowed_states():
+            self.value_fn[state] = 0
+
+        for terminal_state in self.env.get_terminal_states():
+            self.value_fn[terminal_state] = 0
+
+    def get_type(self):
+        return 'value'
+
+    def learn_until_convergence(self):
+        delta = 1e10
+        while delta > self.threshold:
+            delta = self.policy_evaluation()
+        return delta
+
+    def policy_evaluation(self):
+        delta = 0
+        for state in self.env.get_allowed_player_states():
+            old_value = self.value_fn[state]
+            self.env.reset()
+            self.env.set_state(state)
+            state_value = 0
+            for action in self.env.get_allowed_actions():
+                self.env.reset()
+                self.env.set_state(state)
+                next_state, reward, done, info = self.env.step(action)
+                state_value += self.probs[action] * (reward + self.gamma * self.value_fn[next_state])
+            self.value_fn[state] = state_value
+            delta = max(delta, np.abs(old_value - self.value_fn[state]))
+
+
+        # for state in self.env.get_allowed_player_states():
+        #     self.policy[state] = np.random.choice(self.all_actions)
+        return delta
+
+    def learn_one_iteration(self):
+        print(self.learn_until_convergence())
 
 
