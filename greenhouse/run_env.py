@@ -1,4 +1,4 @@
-from greenhouse_sim.greenhouse import GreenhouseEnv, GreenhouseObservation, plot_history, GreenhouseAction
+from greenhouse.greenhouse import GreenhouseEnv, GreenhouseObservation, plot_history, GreenhouseAction
 import numpy as np
 
 env =  GreenhouseEnv()

@@ -1,191 +1,14 @@
-import numpy as np
-
 import matplotlib.pyplot as plt
-import pandas as pd
-
-# define function to calculate saturated vapor density
-def saturated_vapor_density(temperature):
-    # Calculate saturated vapor density mg/m3
-    # For data see http://hyperphysics.phy-astr.gsu.edu/hbase/Kinetic/watvap.html
-    # Saturated vapor density table has been fitted to 3rd polynome using Excel
-    # Temperate: degrees
-    # vapor density: gr/m3
-    return (
-        0.0006 * temperature ** 3
-        - 0.0021 * temperature ** 2
-        + 0.3322 * temperature
-        + 5.8649
-    )
-
-
-def ppm_to_gpm3(CO2_ppm):
-    # convert CO2 ppm to gram/m3
-    return CO2_ppm * 44.01 / (24.45 * 1000)
-
-
-def gpm3_to_ppm(CO2_gpm3):
-    # convert CO2 gram/m3 to ppm
-    return 24.45 * CO2_gpm3 * 1000 / 44.01
-
-
-def rh_to_gpm3(humidity, temperature):
-    # convert relative humidity to gram/m3
-    return saturated_vapor_density(temperature) * humidity / 100.0
-
-
-def gpm3_to_rh(vapor_density, temperature):
-    return 100 * vapor_density / saturated_vapor_density(temperature)
-
-
-class WeatherObservation:
-    def __init__(
-        self,
-        temperature=17,  # degrees
-        relative_humidity=40,  # %
-        solar_power=0,  # W/m2
-        CO2=350,  # ppm
-    ):
-        self.temperature = temperature
-        self.relative_humidity = relative_humidity
-        self.solar_power = solar_power
-        self.CO2 = CO2
-
-    def to_numpy(self):
-        return np.array(
-            [self.temperature, self.relative_humidity, self.solar_power, self.CO2]
-        )
-
-    @staticmethod
-    def size():
-        return 4
-
-    @staticmethod
-    def labels():
-        return [
-            "Temperature [C]",
-            "Rel. Humidity [%]",
-            "Solar power [W/m2]",
-            "CO2 [ppm]",
-        ]
-
-
-class WeatherDefault:
-    def __init__(
-        self,
-        temperature=17,  # degrees
-        relative_humidity=40,  # %
-        solar_power=0,  # W/m2
-        CO2=350,
-    ):  # ppm)
-        self.obs = WeatherObservation(temperature, relative_humidity, solar_power, CO2)
-
-    # default Weather model
-    def reset(self):
-        return self.obs
-
-    def step(self):
-        return self.obs
-
-
-class Weather:
-    # Weather model that uses weather data from csv file
-    def __init__(self):
-        # read data from cvs file
-        # columns:
-        # 'time', 'AbsHumOut', 'Iglob', 'PARout', 'Pyrgeo', 'RadSum', 'Rain',
-        # 'Rhout', 'Tout', 'Winddir', 'Windsp'
-        self.data = pd.read_csv("greenhouse_sim/data/meteo.csv").values[:, 1:].astype(np.float64)
-        # correct nan values first two rows
-        self.data[0, :] = self.data[2, :]
-        self.data[1, :] = self.data[2, :]
-
-    def reset(self):
-        self.counter = 0
-        obs = WeatherObservation(
-            temperature=self.data[self.counter, 7],  # degrees
-            relative_humidity=self.data[self.counter, 6],  # %
-            solar_power=self.data[self.counter, 1],  # W/m2
-            CO2=350,
-        )
-        return obs
-
-    def step(self):
-        self.counter += 1
-        obs = WeatherObservation(
-            temperature=self.data[self.counter, 7],  # degrees
-            relative_humidity=self.data[self.counter, 6],  # %
-            solar_power=self.data[self.counter, 1],  # W/m2
-            CO2=350,
-        )
-        return obs
-
-
-class PlantAction:
-    def __init__(self, radiation=0, CO2=0, temperature=0):
-        self.radiation = radiation  # W/m2
-        self.CO2 = CO2  # g/m3 green house CO2
-        self.temperature = temperature  # Celcius green house temperature
-
-    def to_numpy(self):
-        return np.array([self.radiation])
-
-    @staticmethod
-    def size():
-        return 3
-
-    @staticmethod
-    def labels():
-        return ["Radiation [W/m2]", "CO2 [g/m3]", "Temperature [Celcius]"]
-
-
-class PlantObservation:
-    def __init__(self, CO2_absorption_rate=0, CO2_total=0):
-        self.CO2_absorption_rate = CO2_absorption_rate  # g/m2/s
-        self.CO2_total = CO2_total
-
-    def to_numpy(self):
-        return np.array([self.CO2_absorption_rate, self.CO2_total])
-
-    @staticmethod
-    def size():
-        return 2
-
-    @staticmethod
-    def labels():
-        return ["CO2 absorption rate [g/m2/h]", "CO2 total [gram]"]
-
-
-class Plant:
-    def __init__(self):
-        self.sample_time = 5
-
-        # photosynthesis
-        self.plant_CO2_generation = 0.1  # g/m2/h
-        self.optimal_CO2_absorption = ppm_to_gpm3(800)  # g/m3
-
-    def reset(self):
-        self.total_CO2 = 0  # gram/m2
-        return PlantObservation(0, 0)
-
-    def step(self, action):
-        # plant absorption
-        if action.radiation > 0:
-            CO2_absorption_rate = (
-                -self.photosynthesis_rate(action) * self.optimal_CO2_absorption / 3600
-            )
-        else:
-            CO2_absorption_rate = self.plant_CO2_generation / 3600
-
-        self.total_CO2 += -CO2_absorption_rate * self.sample_time * 60
-        return PlantObservation(CO2_absorption_rate, self.total_CO2)
-
-    def photosynthesis_rate(self, action: PlantAction):
-        temperature = np.clip(action.temperature, 0, 50)
-        return (
-            (1 - np.exp(-action.radiation / 100.0))
-            * (1 - np.exp(-gpm3_to_ppm(action.CO2) / 400))
-            * (1.0 - 0.0016 * (temperature - 25.0) ** 2)
-        )
+import numpy as np
+from convert_units import (
+    gpm3_to_ppm,
+    gpm3_to_rh,
+    ppm_to_gpm3,
+    rh_to_gpm3,
+    saturated_vapor_density,
+)
+from greenhouse.plant import Plant, PlantAction, PlantObservation
+from greenhouse.weather import Weather, WeatherDefault, WeatherObservation
 
 
 class GreenhouseAction:
@@ -194,17 +17,26 @@ class GreenhouseAction:
         self.window = window  # window open/closed (1/0)
         self.vapor_supply = vapor_supply  # vapor system on/off (1/0)
         self.CO2_supply = CO2_supply  # CO2 supply on/off (1/0)
+        self.light = light
 
     def to_numpy(self):
-        return np.array([self.heater, self.window, self.vapor_supply, self.CO2_supply])
+        return np.array(
+            [self.heater, self.window, self.vapor_supply, self.CO2_supply, self.light]
+        )
 
     @staticmethod
     def size():
-        return 4
+        return 5
 
     @staticmethod
     def labels():
-        return ["Heater on/off", "Window open/closes", "Vapor on/off", "CO2 on/off"]
+        return [
+            "Heater on/off",
+            "Window open/closes",
+            "Vapor on/off",
+            "CO2 on/off",
+            "Light on/off",
+        ]
 
 
 class GreenhouseObservation:
@@ -232,7 +64,7 @@ class GreenhouseObservation:
     @staticmethod
     def labels():
         return (
-            ["Time [min]", "Temperature [C]", "Rel. Humidity [%]", "CO2 [ppm]"]
+            ["Time [min]", "GH Temperature [C]", "GH Rel. Humidity [%]", "GH CO2 [ppm]"]
             + WeatherObservation().labels()
             + PlantObservation.labels()
         )
@@ -255,11 +87,15 @@ class Greenhouse:
         # solar reflectance of glass
         self.reflectance = 0.5  # %
 
+        # solar radiation to PAR (photosynthesis active radiation)
+        self.solar_power_to_par = 4.6
+
         # actuator specifications
         self.max_heating_capacity = 120  # W/m2
         self.max_vapor_capacity = 30  # g/m2/h
         self.max_CO2_capacity = 15  # g/m2/h
         self.max_ventilation_capacity = 5.0  # m3/h
+        self.max_light_capacity = 187  # umol/m2/s
 
         # vapor heat dissipation
         self.evaporation_coeff = 0.05  # m3/g
@@ -278,6 +114,7 @@ class Greenhouse:
         self.cost_heat = -0.01  # €/kW/m2
         self.cost_CO2 = -2000.0  # €/kg/m2
         self.cost_vapor = 0  # €/kg/m2
+        self.cost_light = 1 / 7.2e6  # €/umol/m2
         self.plant_CO2 = 2000  # €/g
 
     def reset(self):
@@ -290,6 +127,7 @@ class Greenhouse:
         self.total_heat = 0  # kW/m2
         self.total_CO2 = 0  # kg/m2
         self.total_vapor = 0  # kg/m2
+        self.total_light = 0  # umol/m2
 
         # reset weather model
         self.weather_obs = self.weather_model.reset()
@@ -352,7 +190,7 @@ class Greenhouse:
         # simulate temperature
         heat_supply_heater = action.heater * self.max_heating_capacity
         self.total_heat += heat_supply_heater * self.sample_time * 60 / 1000
-        # reward += self.cost_heat * (heat_supply_heater * self.sample_time * 60 / 1000)
+        reward += self.cost_heat * (heat_supply_heater * self.sample_time * 60 / 1000)
         heat_supply_solar = (1 - self.reflectance) * self.weather_obs.solar_power
         if action.window > 0:
             heat_loss_window = self.heat_loss_window_open * (
@@ -396,6 +234,11 @@ class Greenhouse:
         if CO2_next < 0:
             CO2_next = 0
 
+        # update light model
+        light_supply = action.light * self.max_light_capacity * self.sample_time * 60
+        self.total_light += light_supply
+        reward += self.cost_light * light_supply
+
         # make observation
         obs = GreenhouseObservation(
             self.time,
@@ -414,7 +257,10 @@ class Greenhouse:
 
         # update plant
         plant_action = PlantAction(
-            radiation=self.weather_obs.solar_power, CO2=self.CO2, temperature=self.temp
+            radiation=self.solar_power_to_par * self.weather_obs.solar_power
+            + action.light * self.max_light_capacity,
+            CO2=self.CO2,
+            temperature=self.temp,
         )
         self.plant_obs = self.plant_model.step(plant_action)
         reward += self.plant_CO2 * (-1 * self.plant_obs.CO2_absorption_rate)
@@ -453,66 +299,6 @@ def plot_history(history):
         ax.set_ylabel(GreenhouseAction.labels()[i])
 
     plt.tight_layout()
-
-
-import gym
-from gym import spaces
-
-from itertools import product
-
-
-class GreenhouseEnv(gym.Env):
-    def __init__(self, config=None):
-        super(GreenhouseEnv, self).__init__()
-        self.config = config or dict()
-
-        self.time = 0
-
-        self.greenhouse_model = Greenhouse(weather_model=Weather())
-        sample_obs = self.greenhouse_model.reset()
-
-        high = np.array([np.inf] * sample_obs.size())
-        self.observation_space = spaces.Box(low=-high, high=high, dtype=np.float32)
-
-        ranges = [
-            [0, 0.5],
-            [0, 1],
-            [0, 1],
-            [0, 1],
-        ]
-        possible_actions = list(product(*ranges))
-        self.action_vec_to_num = {}
-        self.action_num_to_vec = {}
-
-        for i, action in enumerate(possible_actions):
-            self.action_vec_to_num[action] = i
-            self.action_num_to_vec[i] = action
-
-        self.action_space = spaces.Discrete(len(self.action_vec_to_num))
-
-    def reset(self):
-        obs_np = self.greenhouse_model.reset().to_numpy()
-        return obs_np
-
-    def step(self, action):
-        if isinstance(action, int):
-            action = self.action_num_to_vec[action]
-
-        greenhouse_action = GreenhouseAction(
-            heater=action[0],
-            window=action[1],
-            vapor_supply=action[2],
-            CO2_supply=action[3],
-        )
-
-        greenhouse_state, reward = self.greenhouse_model.step(greenhouse_action)
-
-        sim_max_minutes = 7 * 24 * 60
-
-        done = self.greenhouse_model.time >= sim_max_minutes
-        info = {}
-
-        return greenhouse_state.to_numpy(), reward, done, info
 
 
 if __name__ == "__main__":
