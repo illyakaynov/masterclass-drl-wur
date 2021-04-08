@@ -19,7 +19,19 @@ class Agent:
     def learn_one_iteration(self):
         pass
 
-class MonteCarloValue(Agent):
+
+class ValueAgent(Agent):
+
+    def get_values_or_q_values(self, state):
+        next_state_values = []
+        for action in self.env.get_allowed_actions():
+            self.env.reset()
+            self.env.set_state(state)
+            next_state, reward, _, _ = self.env.step(action)
+            next_state_values.append(reward + self.gamma * self.value_fn[next_state])
+        return next_state_values
+
+class MonteCarloValue(ValueAgent):
 
     def __init__(self, env, epsilon=0.2):
         self.trajectory = []
@@ -27,8 +39,10 @@ class MonteCarloValue(Agent):
         self.returns = {}
         self.policy = {}
         self.gamma = 0.9
+        self.alpha = 0.01
         self.env = env
         self.epsilon = epsilon
+        self.episode_count = 0
         self.reset_values()
 
     def get_type(self):
@@ -37,36 +51,47 @@ class MonteCarloValue(Agent):
     def reset(self):
         self.policy_evaluation()
         self.policy_improvement()
+        self.episode_count += 1
         self.trajectory = []
 
     def reset_values(self):
         allowed_actions = self.env.get_allowed_actions()
         for state in self.env.get_allowed_states():
             self.returns[state] = []
-            self.value_fn[state] = np.random.uniform()
+            self.value_fn[state] = 0
 
         for state in self.env.get_allowed_player_states():
             self.policy[state] = np.random.choice(allowed_actions)
+
+        self.episode_count = 0
 
     def compute_action(self, obs):
         if np.random.random() < self.epsilon:
             action = np.random.choice(self.env.get_allowed_actions())
         else:
-            action = self.policy[obs]
+            action = self.compute_greedy_action(obs)
         return action
 
     def compute_greedy_action(self, obs):
-        return self.policy[obs]
+        next_state_values = self.get_values_or_q_values(obs)
+        return np.argmax(next_state_values)
 
     def policy_evaluation(self):
         return_ = 0
         visited_obs = set()
-        for obs, action, next_obs, reward, done in self.trajectory[::-1]:
-            return_ = return_ + reward
+        delta = 0
+        rewards = np.asarray([experience[3] for experience in self.trajectory])
+        from policy_gradient.memory.sample_batch import discount_cumsum
+        returns = discount_cumsum(rewards, self.gamma)
+        for (obs, action, next_obs, reward, done), return_ in zip(self.trajectory, returns):
             if obs not in visited_obs:
+                old_value = self.value_fn[obs]
                 self.returns[obs].append(return_)
-                self.value_fn[obs] = np.mean(self.returns[obs])
+                # self.value_fn[obs] = np.mean(self.returns[obs])
+                self.value_fn[obs] = self.value_fn[obs] + self.alpha * (return_ - self.value_fn[obs])
+                delta = max(delta, np.abs(old_value - self.value_fn[obs]))
                 visited_obs.add(obs)
+        return delta
 
     def policy_improvement(self):
         for state in self.env.get_allowed_player_states():
@@ -118,8 +143,7 @@ class MonteCarloQValue(Agent):
         return self.q_table[obs, :].argmax()
 
     def compute_action(self, obs):
-        action_probs = self.policy.get(obs, None)
-        action = np.random.choice(self.n_actions, p=action_probs)
+        action = np.random.randint(self.n_actions)
         return action
 
     def update(self, obs, action, next_obs, reward, done):
@@ -145,13 +169,13 @@ class MonteCarloQValue(Agent):
                 self.policy[obs] = action_probs
 
 
-class MonteCarloValueRandom(Agent):
+class MonteCarloValueRandom(ValueAgent):
 
     def __init__(self, env):
         self.trajectory = []
         self.value_fn = {}
         self.returns = {}
-        self.alpha = 0.001
+        self.alpha = 0.01
         self.threshold = 1e-4
         self.episode_counter = 0
         self.gamma = 0.9
@@ -174,6 +198,7 @@ class MonteCarloValueRandom(Agent):
             self.value_fn[state] = 0
         for state in self.env.get_terminal_states():
             self.value_fn[state] = 0
+        self.episode_count = 0
 
     def compute_action(self, obs):
         action = np.random.choice(self.env.get_allowed_actions())
@@ -189,15 +214,17 @@ class MonteCarloValueRandom(Agent):
         return np.argmax(next_state_values)
 
     def policy_evaluation(self):
-        self.generate_trajectory()
         return_ = 0
         visited_obs = set()
         delta = 0
-        for obs, action, next_obs, reward, done in self.trajectory[::-1]:
-            return_ = self.gamma * return_ + reward
+        rewards = np.asarray([experience[3] for experience in self.trajectory])
+        from policy_gradient.memory.sample_batch import discount_cumsum
+        returns = discount_cumsum(rewards, self.gamma)
+        for (obs, action, next_obs, reward, done), return_ in zip(self.trajectory, returns):
             if obs not in visited_obs:
                 old_value = self.value_fn[obs]
                 self.returns[obs].append(return_)
+                # self.value_fn[obs] = np.mean(self.returns[obs])
                 self.value_fn[obs] = self.value_fn[obs] + self.alpha * (return_ - self.value_fn[obs])
                 delta = max(delta, np.abs(old_value - self.value_fn[obs]))
                 visited_obs.add(obs)
@@ -219,15 +246,18 @@ class MonteCarloValueRandom(Agent):
             obs = next_obs
 
     def learn_until_convergence(self):
+        n_iter = 0
         delta = 1e10
-        while delta > self.threshold:
+        while delta > self.threshold or True:
             self.generate_trajectory()
             delta = self.policy_evaluation()
             self.trajectory = []
-            print(delta)
+            if n_iter > 2000:
+                break
+            n_iter += 1
         return delta
 
     def learn_one_iteration(self):
-        print(self.learn_until_convergence())
+        self.learn_until_convergence()
 
 

@@ -53,7 +53,7 @@ class GridEnv(gym.Env):
         if self.state.get_state(x, y) == self.state.CELLS['goal']:
             done = True
 
-        if self.terminate_after and self.time >= self.end_time:
+        if self.terminate_after and self.time >= self.terminate_after:
             done = True
 
         return obs, reward, done, {}

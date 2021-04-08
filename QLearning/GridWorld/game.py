@@ -10,6 +10,10 @@ from os.path import join
 
 from QLearning.GridWorld.monte_carlo import MonteCarloValue, MonteCarloQValue, MonteCarloValueRandom
 
+import numpy as np
+
+from QLearning.GridWorld.temporal_differencing import TDValueRandom, TDValue
+
 BLUE = (0, 0, 255)
 BLACK = (0, 0, 0)
 GREEN = (0, 255, 0)
@@ -18,8 +22,8 @@ WHITE = (255, 255, 255)
 GREY = (100, 100, 100)
 
 GAMMA_STEP = 0.01
-EPSILON_STEP = 0.05
-ALPHA_STEP = 0.05
+EPSILON_STEP = 0.4
+ALPHA_STEP = 0.01
 
 TOGGLE_LEARNING = "toggle_learning"
 RESET_PLAYER = "reset_player"
@@ -51,6 +55,8 @@ class GridWorld:
                  # agent_type='monte_carlo_value',
                  # agent_type='monte_carlo_q_value',
                  # agent_type='monte_carlo_value_evaluation_random',
+                 # agent_type='td_value_random',
+                 # agent_type='td_value',
 
                  layout_id=0,
                  screen_size=(800, 800),
@@ -63,7 +69,7 @@ class GridWorld:
         pygame.display.set_caption(f"GridWorld-{agent_type}")
         self.player_size = 10
 
-        env_params = {'layout_id': layout_id, 'terminate_after': 20}
+        env_params = {'layout_id': layout_id, 'terminate_after': None}
         self.env = GridEnv(**env_params)
         state = self.env.get_state()
         if agent_type == 'q_learning':
@@ -78,6 +84,10 @@ class GridWorld:
             self.agent = DPRandomAgent(GridEnv(**env_params))
         elif agent_type == 'monte_carlo_value_evaluation_random':
             self.agent = MonteCarloValueRandom(GridEnv(**env_params))
+        elif agent_type == 'td_value_random':
+            self.agent = TDValueRandom(GridEnv(**env_params))
+        elif agent_type == 'td_value':
+            self.agent = TDValue(GridEnv(**env_params))
 
         self.margins = (
             self.screen_size[0] // (state.shape[0] + 1),
@@ -189,6 +199,7 @@ class GridWorld:
                             )
                         if self.display_values or self.display_q_labels:
                             self.draw_arrow(posx + 2, posy + 2, action=self.agent.compute_greedy_action(self.env.coord_to_state(y, x)))
+                            # self.draw_arrows(posx - 5, posy -5 , q_values=self.agent.get_values_or_q_values(self.env.coord_to_state(y, x)), cell_width=cell_width)
 
     def draw_value_label(self, posx, posy, width, value):
         offset = 5
@@ -198,14 +209,37 @@ class GridWorld:
         self.draw_text(posx + half, posy + small, text="{:.3f}".format(value), color_text=BLACK)
 
 
+    def draw_arrows(self, posx, posy, q_values, cell_width):
+        offset = 5
+        scale = 3.5
+        cell_width /= scale
 
-    def draw_arrow(self, posx, posy, action):
+        half = cell_width // 2
+        small = cell_width // offset
+        big = (offset - 1) * cell_width // offset
+
+        xy_pos = [
+            [posx + small, posy + half],  # left
+            [posx + half, posy + small],  # up
+            [posx + big, posy + half],  # right
+            [posx + half, posy + big],  # down
+        ]
+
+        q_values = np.asarray(q_values)
+        greedy_action = np.argmax(q_values)
+        max_q_value = q_values[greedy_action]
+        actions_with_max_value = np.where(q_values == max_q_value)[0]
+        for action in actions_with_max_value:
+            x, y = xy_pos[action]
+            self.draw_arrow(x, y, action, scale_down_by=scale)
+
+    def draw_arrow(self, posx, posy, action, scale_down_by=2.0):
         action_name = self.env.ACTIONS[action]
         image = pygame.image.load(
             join("QLearning", "GridWorld", "images", f"{action_name}.png")
         )
         size = image.get_size()
-        size = (int(size[0] / 2.), int(size[1] / 2.))
+        size = (int(size[0] / scale_down_by), int(size[1] / scale_down_by))
         image = pygame.transform.scale(image, size)
         self.screen.blit(image, (posx, posy))
 
@@ -213,8 +247,8 @@ class GridWorld:
 
         text_values = []
         for attr in ['epsilon', 'gamma', 'alpha', 'episode_reward', 'return_', 'episode_count']:
-            value = getattr(self.agent, attr, 0)
-            if value != 0:
+            value = getattr(self.agent, attr, -1)
+            if value != -1:
                 t = '{}: {:.2f}'.format(attr, value)
                 text_values.append(t)
 
@@ -222,7 +256,7 @@ class GridWorld:
             50,
             40,
             pos="topleft",
-            text=' ,'.join(text_values),
+            text=', '.join(text_values),
         )
 
     def draw_text(

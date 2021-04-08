@@ -18,7 +18,9 @@ class QAgent:
         self.learn = learn
 
         self.sum_rewards = 0
-        self.return_ = 0
+        # self.return_ = 0
+        self.episode_count = 0
+
 
         self.q_table = np.zeros((self.n_states, self.n_actions), np.float)
 
@@ -27,10 +29,13 @@ class QAgent:
 
     def reset(self):
         self.sum_rewards = 0
-        self.return_ = 0
+        # self.return_ = 0
+        self.episode_count += 1
 
     def reset_values(self):
         self.q_table = np.zeros((self.n_states, self.n_actions), np.float)
+        self.episode_count = 0
+
 
     def compute_action(self, obs):
         if self.learn and (np.random.random() < self.epsilon):
@@ -42,6 +47,9 @@ class QAgent:
     def compute_greedy_action(self, obs):
         return np.argmax(self.q_table[obs, :])
 
+    def get_values_or_q_values(self, obs):
+        return self.q_table[obs]
+
     def update(self, obs, action, next_obs, reward, done):
         if self.learn:
             old_q = self.q_table[obs, action]
@@ -50,8 +58,8 @@ class QAgent:
                 - self.q_table[obs, action]
             )
             self.q_table[obs, action] = old_q + self.alpha * (reward + td_update)
-            self.sum_rewards += reward
-            self.return_ += reward * self.gamma
+            # self.sum_rewards += reward
+            # self.return_ += reward * self.gamma
 
 class DoubleQAgent:
     def __init__(
