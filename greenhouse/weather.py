@@ -62,7 +62,7 @@ class Weather:
         # 'time', 'AbsHumOut', 'Iglob', 'PARout', 'Pyrgeo', 'RadSum', 'Rain',
         # 'Rhout', 'Tout', 'Winddir', 'Windsp'
         self.data = (
-            pd.read_csv("greenhouse/data/meteo.csv").values[:, 1:].astype(np.float64)
+            pd.read_csv("https://github.com/illyakaynov/masterclass-drl-wur/raw/master/greenhouse/data/meteo.csv").values[:, 1:].astype(np.float64)
         )
         # correct nan values first two rows
         self.data[0, :] = self.data[2, :]
