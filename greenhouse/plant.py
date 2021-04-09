@@ -2,6 +2,7 @@ import numpy as np
 
 from greenhouse.convert_units import ppm_to_gpm3, gpm3_to_ppm
 
+
 class PlantAction:
     def __init__(self, radiation=0, CO2=0, temperature=0):
         self.radiation = radiation  # W/m2
@@ -13,7 +14,7 @@ class PlantAction:
 
     @staticmethod
     def size():
-        return 3
+        return 4
 
     @staticmethod
     def labels():
@@ -34,12 +35,14 @@ class PlantObservation:
 
     @staticmethod
     def labels():
-        return ["CO2 absorption rate [g/m2/h]", "CO2 total [gram]"]
+        attrs = ["CO2 absorption rate [g/m2/h]", "CO2 total [gram]"]
+        attrs = ['Plant | {}'.format(attr) for attr in attrs]
+        return attrs
 
 
 class Plant:
     def __init__(self):
-        self.sample_time = 5
+        self.sample_time = 5  # minutes
 
         # photosynthesis
         self.plant_CO2_generation = 0.1  # g/m2/h
@@ -47,24 +50,31 @@ class Plant:
 
     def reset(self):
         self.total_CO2 = 0  # gram/m2
+        self.time = 0
         return PlantObservation(0, 0)
 
     def step(self, action):
-        # plant absorption
-        if action.radiation > 0:
+        hour = (self.time / 60) % 24
+
+        # simple equation to model fact that plant needs rest
+        if (hour > 5.0) and (hour < 23.0):
             CO2_absorption_rate = (
                 -self.photosynthesis_rate(action) * self.optimal_CO2_absorption / 3600
             )
         else:
             CO2_absorption_rate = self.plant_CO2_generation / 3600
 
+        # update total CO2
         self.total_CO2 += -CO2_absorption_rate * self.sample_time * 60
+
+        # update time
+        self.time += self.sample_time
+
         return PlantObservation(CO2_absorption_rate, self.total_CO2)
 
     def photosynthesis_rate(self, action: PlantAction):
-        temperature = np.clip(action.temperature, 0, 50)
         return (
-            (1 - np.exp(-action.radiation / 100.0))
-            * (1 - np.exp(-gpm3_to_ppm(action.CO2) / 400))
-            * (1.0 - 0.0016 * (temperature - 25.0) ** 2)
+            (1.0 - np.exp(-action.radiation / (500.0)))
+            * (1.0 - np.exp(-gpm3_to_ppm(action.CO2) / 400))
+            * (1.0 - 0.0016 * (np.clip(action.temperature, 0.0, 50.0) - 25.0) ** 2)
         )

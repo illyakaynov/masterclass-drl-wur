@@ -11,27 +11,30 @@ import numpy as np
 
 class GreenhouseEnv(gym.Env):
     def __init__(self, config=None):
-        super(GreenhouseEnv, self).__init__()
+        super().__init__()
         self.config = config or dict()
+        self.max_episode_time = self.config.get('max_episode_time', 7 * 24 * 60)
 
-        self.time = 0
+        greenhouse_config = self.config.get('greenhouse_config', dict())
+        self.greenhouse_model = Greenhouse(weather_model=Weather(), **greenhouse_config)
 
-        self.greenhouse_model = Greenhouse(weather_model=Weather())
         sample_obs = self.greenhouse_model.reset()
-
         high = np.array([np.inf] * sample_obs.size())
         self.observation_space = spaces.Box(low=-high, high=high, dtype=np.float32)
 
+        # Define the range of values avalilable for actions
         ranges = [
-            [0, 0.5],
+            [0, 1],
+            [0, 1],
             [0, 1],
             [0, 1],
             [0, 1],
         ]
+        # Create a cartesian product of all of the actions
         possible_actions = list(product(*ranges))
+        # Create a mapping from a number to a vector representation of an action and back
         self.action_vec_to_num = {}
         self.action_num_to_vec = {}
-
         for i, action in enumerate(possible_actions):
             self.action_vec_to_num[action] = i
             self.action_num_to_vec[i] = action
@@ -43,21 +46,23 @@ class GreenhouseEnv(gym.Env):
         return obs_np
 
     def step(self, action):
+        # if action is an integer covert it into a vector form
         if isinstance(action, int):
             action = self.action_num_to_vec[action]
 
+        # create a greenhouse action
         greenhouse_action = GreenhouseAction(
             heater=action[0],
             window=action[1],
             vapor_supply=action[2],
             CO2_supply=action[3],
+            light=action[4],
         )
 
-        greenhouse_state, reward = self.greenhouse_model.step(greenhouse_action)
+        # perform a step in a simulation
+        greenhouse_state, reward, reward_dict = self.greenhouse_model.step(greenhouse_action)
 
-        sim_max_minutes = 7 * 24 * 60
-
-        done = self.greenhouse_model.time >= sim_max_minutes
-        info = {}
+        done = self.greenhouse_model.time >= self.max_episode_time
+        info = {**reward_dict}
 
         return greenhouse_state.to_numpy(), reward, done, info

@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 
+
 class WeatherObservation:
     def __init__(
         self,
@@ -25,12 +26,14 @@ class WeatherObservation:
 
     @staticmethod
     def labels():
-        return [
+        attrs = [
             "Temperature [C]",
             "Rel. Humidity [%]",
             "Solar power [W/m2]",
             "CO2 [ppm]",
         ]
+        attrs = ["Weather | {}".format(x) for x in attrs]
+        return attrs
 
 
 class WeatherDefault:
@@ -58,7 +61,9 @@ class Weather:
         # columns:
         # 'time', 'AbsHumOut', 'Iglob', 'PARout', 'Pyrgeo', 'RadSum', 'Rain',
         # 'Rhout', 'Tout', 'Winddir', 'Windsp'
-        self.data = pd.read_csv("greenhouse/data/meteo.csv").values[:, 1:].astype(np.float64)
+        self.data = (
+            pd.read_csv("greenhouse/data/meteo.csv").values[:, 1:].astype(np.float64)
+        )
         # correct nan values first two rows
         self.data[0, :] = self.data[2, :]
         self.data[1, :] = self.data[2, :]

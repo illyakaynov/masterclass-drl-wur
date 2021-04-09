@@ -1,6 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
-from convert_units import (
+from greenhouse.convert_units import (
     gpm3_to_ppm,
     gpm3_to_rh,
     ppm_to_gpm3,
@@ -71,57 +71,87 @@ class GreenhouseObservation:
 
 
 class Greenhouse:
-    def __init__(self, weather_model=WeatherDefault(), plant_model=Plant()):
+    def __init__(
+        self,
+        weather_model=None,
+        plant_model=None,
+        area=96,
+        height=5,
+        heat_capacity=100000,
+        heat_loss_window_open=20,
+        heat_loss_window_closed=10,
+        reflectance=0.5,
+        solar_power_to_par=4.6,
+        max_heating_capacity=120,  # W/m2
+        max_vapor_capacity=30,  # g/m2/h
+        max_CO2_capacity=15,  # g/m2/h
+        max_ventilation_capacity=5.0,  # m3/h
+        max_light_capacity=187,  # umol/m2/s
+        evaporation_coeff=0.05,  # m3/g
+        evaporation_heat_dissipation=10000,  # W/g
+        sample_time=5,  # minutes
+        cost_heat=-0.01,  # €/kW/m2
+        cost_CO2=-2000.0,  # €/kg/m2
+        cost_vapor=1/1.08e5,  # €/kg/m2
+        cost_light=-1 / 7.2e5,  # €/umol/m2
+        plant_CO2=2000,  # €/g
+        start_temp=20,  # degrees C
+        start_CO2=0.6,  # g/m3
+    ):
+
         # greenhouse dimensions
-        self.area = 96  # m2
-        self.height = 5  # m
+        self.area = area  # m2
+        self.height = height  # m
 
         # green house specifications
         # heat capacity J/K/m2
-        self.heat_capacity = 100000
+        self.heat_capacity = heat_capacity
 
         # heat loss coefficient W/K
-        self.heat_loss_window_closed = 10
-        self.heat_loss_window_open = 20
+        self.heat_loss_window_closed = heat_loss_window_closed
+        self.heat_loss_window_open = heat_loss_window_open
 
         # solar reflectance of glass
-        self.reflectance = 0.5  # %
+        self.reflectance = reflectance
 
         # solar radiation to PAR (photosynthesis active radiation)
-        self.solar_power_to_par = 4.6
+        self.solar_power_to_par = solar_power_to_par
 
         # actuator specifications
-        self.max_heating_capacity = 120  # W/m2
-        self.max_vapor_capacity = 30  # g/m2/h
-        self.max_CO2_capacity = 15  # g/m2/h
-        self.max_ventilation_capacity = 5.0  # m3/h
-        self.max_light_capacity = 187  # umol/m2/s
+        self.max_heating_capacity = max_heating_capacity  # W/m2
+        self.max_vapor_capacity = max_vapor_capacity  # g/m2/h
+        self.max_CO2_capacity = max_CO2_capacity  # g/m2/h
+        self.max_ventilation_capacity = max_ventilation_capacity  # m3/h
+        self.max_light_capacity = max_light_capacity  # umol/m2/s
 
         # vapor heat dissipation
-        self.evaporation_coeff = 0.05  # m3/g
-        self.evaporation_heat_dissipation = 10000  # W/g
+        self.evaporation_coeff = evaporation_coeff  # m3/g
+        self.evaporation_heat_dissipation = evaporation_heat_dissipation  # W/g
 
         # simulation parameters
-        self.sample_time = 5  # minutes
+        self.sample_time = sample_time  # minutes
 
         # weather model
-        self.weather_model = weather_model
+        self.weather_model = weather_model or WeatherDefault()
 
         # plant model
-        self.plant_model = plant_model
+        self.plant_model = plant_model or Plant()
 
         # reward
-        self.cost_heat = -0.01  # €/kW/m2
-        self.cost_CO2 = -2000.0  # €/kg/m2
-        self.cost_vapor = 0  # €/kg/m2
-        self.cost_light = 1 / 7.2e6  # €/umol/m2
-        self.plant_CO2 = 2000  # €/g
+        self.cost_heat = cost_heat  # €/kW/m2
+        self.cost_CO2 = cost_CO2  # €/kg/m2
+        self.cost_vapor = cost_vapor  # €/kg/m2
+        self.cost_light = cost_light  # €/umol/m2
+        self.plant_CO2 = plant_CO2  # €/g
+
+        self.start_temp = start_temp
+        self.start_CO2 = start_CO2
 
     def reset(self):
         self.time = 0  # minutes
-        self.temp = 20  # degrees
+        self.temp = self.start_temp  # degrees
         self.vapor_density = np.clip(5.0, 0, saturated_vapor_density(self.temp))  # g/m3
-        self.CO2 = 0.6  # g/m3
+        self.CO2 = self.start_CO2  # g/m3
 
         # total resource consumption
         self.total_heat = 0  # kW/m2
@@ -145,10 +175,12 @@ class Greenhouse:
         )
 
     def step(self, action: GreenhouseAction) -> GreenhouseObservation:
+        reward_dict = {}
         reward = 0
 
         # simulate humidity
         vapor_sat = saturated_vapor_density(self.temp)
+        cost_vapor = 0
         if action.vapor_supply > 0:
             vapor_supply = (
                 self.evaporation_coeff
@@ -159,7 +191,7 @@ class Greenhouse:
             self.total_vapor += (
                 self.max_vapor_capacity * self.sample_time * 60 / (3600 * 1000)
             )
-            reward += (
+            cost_vapor = (
                 self.cost_vapor
                 * self.max_vapor_capacity
                 * self.sample_time
@@ -168,6 +200,8 @@ class Greenhouse:
             )
         else:
             vapor_supply = 0
+
+        reward_dict['cost_vapor'] = cost_vapor
         # ventilation
         alpha = np.clip(
             action.window * self.max_ventilation_capacity / self.height, 0, 1
@@ -190,7 +224,7 @@ class Greenhouse:
         # simulate temperature
         heat_supply_heater = action.heater * self.max_heating_capacity
         self.total_heat += heat_supply_heater * self.sample_time * 60 / 1000
-        reward += self.cost_heat * (heat_supply_heater * self.sample_time * 60 / 1000)
+        reward_dict['cost_heat'] = self.cost_heat * (heat_supply_heater * self.sample_time * 60 / 1000)
         heat_supply_solar = (1 - self.reflectance) * self.weather_obs.solar_power
         if action.window > 0:
             heat_loss_window = self.heat_loss_window_open * (
@@ -218,7 +252,7 @@ class Greenhouse:
         # supply
         CO2_supply = action.CO2_supply * self.max_CO2_capacity / (self.height * 3600)
         self.total_CO2 += CO2_supply * self.sample_time * 60 / 1000
-        reward += self.cost_CO2 * CO2_supply * self.sample_time * 60 / 1000
+        reward_dict['cost_CO2'] = self.cost_CO2 * CO2_supply * self.sample_time * 60 / 1000
         # ventilation
         alpha = np.clip(
             action.window * self.max_ventilation_capacity / self.height, 0, 1
@@ -237,17 +271,10 @@ class Greenhouse:
         # update light model
         light_supply = action.light * self.max_light_capacity * self.sample_time * 60
         self.total_light += light_supply
-        reward += self.cost_light * light_supply
+        reward_dict['cost_light'] = self.cost_light * light_supply
 
         # make observation
-        obs = GreenhouseObservation(
-            self.time,
-            self.temp,
-            humidity=gpm3_to_rh(self.vapor_density, self.temp),
-            CO2=gpm3_to_ppm(self.CO2),
-            weather=self.weather_obs,
-            plant=self.plant_obs,
-        )
+
 
         #
         # prepare next simulation step
@@ -263,7 +290,7 @@ class Greenhouse:
             temperature=self.temp,
         )
         self.plant_obs = self.plant_model.step(plant_action)
-        reward += self.plant_CO2 * (-1 * self.plant_obs.CO2_absorption_rate)
+        reward_dict['CO2_absorbed'] = self.plant_CO2 * (-1 * self.plant_obs.CO2_absorption_rate)
 
         # update greenhouse variables
         self.temp = temp_next
@@ -276,7 +303,24 @@ class Greenhouse:
         self.time += self.sample_time
 
         # return observation
-        return obs, reward
+        reward = sum([v for v in reward_dict.values()])
+        # print(reward_dict)
+
+        obs = self.get_obs()
+
+        return obs, reward, reward_dict
+
+    def get_obs(self):
+        obs = GreenhouseObservation(
+            self.time,
+            self.temp,
+            humidity=gpm3_to_rh(self.vapor_density, self.temp),
+            CO2=gpm3_to_ppm(self.CO2),
+            weather=self.weather_obs,
+            plant=self.plant_obs,
+        )
+        return obs
+
 
 
 def plot_history(history):

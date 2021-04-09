@@ -23,7 +23,7 @@ class Agent:
         ...
 
     def finalize_episode(self, *args, **kwargs):
-        ...
+        return self.stats
 
 
 class RandomAgent(Agent):
